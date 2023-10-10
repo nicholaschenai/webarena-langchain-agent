@@ -21,6 +21,7 @@ from llms.providers.openai_utils import (
     generate_from_openai_completion,
 )
 
+from . import langchain_tools
 
 class Agent:
     """Base class for the agent"""
@@ -204,8 +205,58 @@ def construct_agent(args: argparse.Namespace) -> Agent:
             lm_config=llm_config,
             prompt_constructor=prompt_constructor,
         )
+    elif args.agent_type == "lc_agent":
+        with open(args.instruction_path) as f:
+            constructor_type = json.load(f)["meta_data"]["prompt_constructor"]
+        tokenizer = tiktoken.encoding_for_model(llm_config.model)
+        prompt_constructor = eval(constructor_type)(
+            args.instruction_path, lm_config=llm_config, tokenizer=tokenizer
+        )
+        agent = LCAgent(
+            action_set_tag=args.action_set_tag,
+            lm_config=llm_config,
+            prompt_constructor=prompt_constructor,
+            args=args,
+        )
     else:
         raise NotImplementedError(
             f"agent type {args.agent_type} not implemented"
         )
     return agent
+
+#######################################################################################################################
+
+
+class LCAgent(PromptAgent):
+    """langchain agent that uses tools"""
+
+    @beartype
+    def __init__(
+        self,
+        action_set_tag: str,
+        lm_config: lm_config.LMConfig,
+        prompt_constructor: PromptConstructor,
+        args,
+    ) -> None:
+        super().__init__(action_set_tag, lm_config, prompt_constructor)
+
+        self.agent_chain = langchain_tools.init_agent(args, lm_config, self.prompt_constructor.tokenizer)
+
+    def set_action_set_tag(self, tag: str) -> None:
+        self.action_set_tag = tag
+
+    def run(self, trajectory, intent, meta_data):
+        print("construct prompt\n")
+        prompt = self.prompt_constructor.new_construct(trajectory, intent, meta_data)
+        print("run chain \n")
+        hasError = False
+
+        # self.agent_chain.invoke({"input": prompt})
+        response = self.agent_chain.invoke({"input": prompt})
+        # print(f'response {response}')
+
+        return response
+
+
+    def reset(self, test_config_file: str) -> None:
+        pass

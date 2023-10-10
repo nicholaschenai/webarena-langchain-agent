@@ -226,3 +226,50 @@ class CoTPromptConstructor(PromptConstructor):
             raise ActionParsingError(
                 f'Cannot find the answer phrase "{self.answer_phrase}" in "{response}"'
             )
+
+#######################################################################################################################
+
+
+class LCPromptConstructor(CoTPromptConstructor):
+    """langchain"""
+
+    def __init__(
+        self,
+        instruction_path: str | Path,
+        lm_config: lm_config.LMConfig,
+        tokenizer: tiktoken.core.Encoding,
+    ):
+        super().__init__(instruction_path, lm_config, tokenizer)
+
+    def new_construct(
+        self,
+        trajectory: Trajectory,
+        intent: str,
+        meta_data: dict[str, Any] = {},
+    ):
+        intro = self.instruction["intro"]
+        # examples = self.instruction["examples"]
+        template = self.instruction["template"]
+        # keywords = self.instruction["meta_data"]["keywords"]
+        state_info: StateInfo = trajectory[-1]
+
+        obs = state_info["observation"][self.obs_modality]
+        max_obs_length = self.lm_config.gen_config["max_obs_length"]
+        if max_obs_length:
+            obs = self.tokenizer.decode(self.tokenizer.encode(obs)[:max_obs_length])  # type: ignore[arg-type]
+
+        page = state_info["info"]["page"]
+        url = page.url
+
+        previous_action_str = meta_data["action_history"][-1]
+        if 'goto' in previous_action_str:
+            previous_action_str = self.map_url_to_real(previous_action_str)
+        prompt = template.format(
+            objective=intent,
+            url=self.map_url_to_real(url),
+            observation=obs,
+            intro=intro,
+            previous_action=previous_action_str,
+        )
+
+        return prompt
